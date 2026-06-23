@@ -309,13 +309,11 @@
   /* ═══════════════════════════════════════════════════
      ▶ CONFIG — ここを書き換えてください
   ═══════════════════════════════════════════════════ */
-  const SUPABASE_URL      = 'https://fntwrdofozxbamjiawac.supabase.co';
-  const SUPABASE_ANON_KEY = 'sb_secret_LpSnINfv8KyWQFxcA53KYQ_kF_IOQu1';   // Service Role Key でも可（RLS書き込み制限を回避する場合）
-
-  // 管理者パスワード（HTMLに直書き。より安全にしたい場合は環境変数やサーバーサイドへ）
-  const ADMIN_PASSWORD = 'your-password-here';
-  /* ═══════════════════════════════════════════════════ */
-
+  // サーバーサイドで環境変数を注入（Cloudflare Workers/Pages の場合）
+  const SUPABASE_URL      = '{{ SUPABASE_URL }}';
+  const SUPABASE_ANON_KEY = '{{ SUPABASE_ANON_KEY }}';
+  const ADMIN_PASSWORD    = '{{ ADMIN_PASSWORD }}';
+  
   const SESSION_KEY = 'wt_admin_authed';
 
   const { createClient } = supabase;
