@@ -114,6 +114,20 @@
       box-shadow: 0 0 0 3px var(--accent-dim);
     }
     input.error-field { border-color: var(--danger); box-shadow: 0 0 0 3px rgba(239,68,68,.2); }
+
+    /* 自動計算フィールド */
+    input[readonly] {
+      background: var(--surface2);
+      color: var(--accent);
+      font-weight: 600;
+      cursor: default;
+      border-color: var(--accent-dim);
+    }
+    input[readonly]:focus {
+      border-color: var(--accent-dim);
+      box-shadow: none;
+    }
+
     textarea { resize: vertical; min-height: 80px; }
     select option { background: var(--surface2); }
     .field { margin-bottom: 20px; }
@@ -169,6 +183,49 @@
     .switch input:checked + .slider { background: var(--success); }
     .switch input:checked + .slider::before { transform: translateX(20px); }
 
+    /* ── 係数設定ボックス ── */
+    .coefficient-box {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 24px;
+    }
+    .coefficient-box-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: 12px;
+    }
+    .coefficient-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .coefficient-row input {
+      width: 90px;
+      flex-shrink: 0;
+      text-align: center;
+    }
+    .coefficient-desc {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .coefficient-desc strong {
+      color: var(--text);
+    }
+
+    /* ── Auto-calc hint ── */
+    .field-hint {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 5px;
+      font-family: var(--mono);
+    }
+
     /* ── Toast ── */
     #toast {
       position: fixed;
@@ -215,7 +272,6 @@
       font-family: var(--mono); text-align: right; margin-top: 16px;
     }
 
-    /* shake animation for wrong password */
     @keyframes shake {
       0%,100%{ transform: translateX(0); }
       20%    { transform: translateX(-8px); }
@@ -268,6 +324,18 @@
 
     <hr class="divider" />
 
+    <!-- 係数設定 -->
+    <div class="coefficient-box">
+      <div class="coefficient-box-title">⚙ 待ち時間の計算係数</div>
+      <div class="coefficient-row">
+        <input type="number" id="coeff-input" min="0.1" max="60" step="0.5"
+               value="3" oninput="onCoeffChange()" />
+        <div class="coefficient-desc">
+          分／人　→　<strong>待ち時間 = 待ち人数 × 係数（5分単位）</strong>
+        </div>
+      </div>
+    </div>
+
     <div class="toggle-row">
       <div>
         <div class="toggle-label">営業中</div>
@@ -281,12 +349,14 @@
 
     <div class="row-2">
       <div class="field">
-        <label>待ち時間（分）</label>
-        <input type="number" id="wait-minutes" min="0" max="999" placeholder="例: 30" />
+        <label>待ち人数</label>
+        <input type="number" id="waiting-groups" min="0" max="999" placeholder="例: 5"
+               oninput="calcWaitTime()" />
       </div>
       <div class="field">
-        <label>待ちグループ数</label>
-        <input type="number" id="waiting-groups" min="0" max="999" placeholder="例: 5" />
+        <label>待ち時間（分）</label>
+        <input type="number" id="wait-minutes" readonly placeholder="自動計算" />
+        <div class="field-hint">待ち人数 × 係数、5分単位</div>
       </div>
     </div>
 
@@ -310,10 +380,12 @@
      ▶ CONFIG — ここを書き換えてください
   ═══════════════════════════════════════════════════ */
   const SUPABASE_URL      = 'https://fntwrdofozxbamjiawac.supabase.co';
-  const SUPABASE_ANON_KEY = 'sb_publishable_dTtCMCzwV53fqxBgXqVMfQ_G_rx0Mjw';   // Service Role Key でも可（RLS書き込み制限を回避する場合）
+  const SUPABASE_ANON_KEY = 'sb_publishable_dTtCMCzwV53fqxBgXqVMfQ_G_rx0Mjw';
 
-  // 管理者パスワード（HTMLに直書き。より安全にしたい場合は環境変数やサーバーサイドへ）
   const ADMIN_PASSWORD = '15';
+
+  // ▼ デフォルトの係数（分／人）。管理パネルのUIからも変更できます。
+  const DEFAULT_MINUTES_PER_PERSON = 3;
   /* ═══════════════════════════════════════════════════ */
 
   const SESSION_KEY = 'wt_admin_authed';
@@ -324,7 +396,7 @@
   let currentStoreId = null;
   let isOpenState    = true;
 
-  /* ── Boot: セッション確認 ── */
+  /* ── Boot ── */
   if (sessionStorage.getItem(SESSION_KEY) === '1') {
     showAdmin();
   } else {
@@ -332,7 +404,28 @@
   }
 
   /* ─────────────────────────────────────────
-     AUTH（パスワードのみ）
+     待ち時間の自動計算（5分単位四捨五入）
+  ───────────────────────────────────────── */
+  function calcWaitTime() {
+    const people = parseInt(document.getElementById('waiting-groups').value);
+    const coeff  = parseFloat(document.getElementById('coeff-input').value);
+    const minutesEl = document.getElementById('wait-minutes');
+
+    if (!isOpenState || isNaN(people) || people === 0) {
+      minutesEl.value = '';
+      return;
+    }
+    const raw     = people * coeff;           // 生の分数
+    const rounded = Math.round(raw / 5) * 5;  // 5分単位四捨五入
+    minutesEl.value = rounded;
+  }
+
+  function onCoeffChange() {
+    calcWaitTime();
+  }
+
+  /* ─────────────────────────────────────────
+     AUTH
   ───────────────────────────────────────── */
   function login() {
     const input = document.getElementById('pw-input');
@@ -372,6 +465,8 @@
     document.getElementById('login-screen').classList.remove('active');
     document.getElementById('admin-screen').classList.add('active');
     document.getElementById('logout-btn').style.display = '';
+    // デフォルト係数をUIに反映
+    document.getElementById('coeff-input').value = DEFAULT_MINUTES_PER_PERSON;
     await loadStores();
   }
 
@@ -413,20 +508,21 @@
     if (error) { toast('データ読み込みに失敗しました', 'error'); return; }
 
     if (data) {
-      document.getElementById('wait-minutes').value   = data.wait_minutes ?? '';
       document.getElementById('waiting-groups').value = data.waiting_groups ?? '';
       document.getElementById('notice').value         = data.notice ?? '';
       isOpenState = data.wait_minutes !== null;
       document.getElementById('is-open').checked = isOpenState;
       updateOpenDesc();
       syncInputState();
+      // 待ち時間は再計算（DBの値ではなく現在の係数で算出）
+      calcWaitTime();
       if (data.updated_at) {
         document.getElementById('last-updated').textContent =
           '最終更新: ' + new Date(data.updated_at).toLocaleString('ja-JP');
       }
     } else {
-      document.getElementById('wait-minutes').value   = '';
       document.getElementById('waiting-groups').value = '';
+      document.getElementById('wait-minutes').value   = '';
       document.getElementById('notice').value         = '';
       isOpenState = true;
       document.getElementById('is-open').checked = true;
@@ -441,6 +537,7 @@
     isOpenState = document.getElementById('is-open').checked;
     updateOpenDesc();
     syncInputState();
+    calcWaitTime();
   }
 
   function updateOpenDesc() {
@@ -449,11 +546,11 @@
   }
 
   function syncInputState() {
-    const m = document.getElementById('wait-minutes');
     const g = document.getElementById('waiting-groups');
-    if (!isOpenState) { m.value = ''; g.value = ''; }
-    m.disabled = !isOpenState;
+    const m = document.getElementById('wait-minutes');
+    if (!isOpenState) { g.value = ''; m.value = ''; }
     g.disabled = !isOpenState;
+    // wait-minutesはreadonlyなのでdisabledは不要（見た目は変わらないので任意）
   }
 
   async function save() {
@@ -463,8 +560,8 @@
     btn.textContent = '保存中...';
 
     const storeName = document.getElementById('store-select').selectedOptions[0]?.textContent ?? '';
-    const minutes   = document.getElementById('wait-minutes').value;
     const groups    = document.getElementById('waiting-groups').value;
+    const minutes   = document.getElementById('wait-minutes').value;
     const notice    = document.getElementById('notice').value.trim();
 
     const { error } = await sb.from('wait_times').upsert({
